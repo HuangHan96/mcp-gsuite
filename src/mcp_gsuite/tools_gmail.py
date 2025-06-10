@@ -1,15 +1,15 @@
+import base64
 from collections.abc import Sequence
+import json
 from mcp.types import (
     Tool,
     TextContent,
     ImageContent,
     EmbeddedResource,
-    LoggingLevel,
 )
-from . import gmail
-import json
-from . import toolhandler
-import base64
+
+from . import gmail, toolhandler
+from .credential import Credential
 
 def decode_base64_data(file_data):
     standard_base64_data = file_data.replace("-", "+").replace("_", "/")
@@ -32,7 +32,10 @@ class QueryEmailsToolHandler(toolhandler.ToolHandler):
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "__user_id__": self.get_user_id_arg_schema(),
+                    "account": {
+                        "type": "string",
+                        "description": "The EMAIL of the Google account for which you are executing this action. Must be provided by user.",
+                    },
                     "query": {
                         "type": "string",
                         "description": """Gmail search query (optional). Examples:
@@ -52,17 +55,12 @@ class QueryEmailsToolHandler(toolhandler.ToolHandler):
                         "default": 100
                     }
                 },
-                "required": [toolhandler.USER_ID_ARG]
+                "required": ["account"]
             }
         )
 
     def run_tool(self, args: dict) -> Sequence[TextContent | ImageContent | EmbeddedResource]:
-
-        user_id = args.get(toolhandler.USER_ID_ARG)
-        if not user_id:
-            raise RuntimeError(f"Missing required argument: {toolhandler.USER_ID_ARG}")
-
-        gmail_service = gmail.GmailService(user_id=user_id)
+        gmail_service = gmail.GmailService(credential=Credential(args))
         query = args.get('query')
         max_results = args.get('max_results', 100)
         emails = gmail_service.query_emails(query=query, max_results=max_results)
@@ -70,7 +68,7 @@ class QueryEmailsToolHandler(toolhandler.ToolHandler):
         return [
             TextContent(
                 type="text",
-                text=json.dumps(emails, indent=2)
+                text=json.dumps({"emails": emails}, indent=2)
             )
         ]
 
@@ -85,13 +83,16 @@ class GetEmailByIdToolHandler(toolhandler.ToolHandler):
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "__user_id__": self.get_user_id_arg_schema(),
+                    "account": {
+                        "type": "string",
+                        "description": "The EMAIL of the Google account for which you are executing this action. Must be provided by user.",
+                    },
                     "email_id": {
                         "type": "string",
                         "description": "The ID of the Gmail message to retrieve"
                     }
                 },
-                "required": ["email_id", toolhandler.USER_ID_ARG]
+                "required": ["account", "email_id"]
             }
         )
 
@@ -99,10 +100,7 @@ class GetEmailByIdToolHandler(toolhandler.ToolHandler):
         if "email_id" not in args:
             raise RuntimeError("Missing required argument: email_id")
 
-        user_id = args.get(toolhandler.USER_ID_ARG)
-        if not user_id:
-            raise RuntimeError(f"Missing required argument: {toolhandler.USER_ID_ARG}")
-        gmail_service = gmail.GmailService(user_id=user_id)
+        gmail_service = gmail.GmailService(credential=Credential(args))
         email, attachments = gmail_service.get_email_by_id_with_attachments(args["email_id"])
 
         if email is None:
@@ -118,7 +116,7 @@ class GetEmailByIdToolHandler(toolhandler.ToolHandler):
         return [
             TextContent(
                 type="text",
-                text=json.dumps(email, indent=2)
+                text=json.dumps({"email": email}, indent=2)
             )
         ]
 
@@ -133,7 +131,10 @@ class BulkGetEmailsByIdsToolHandler(toolhandler.ToolHandler):
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "__user_id__": self.get_user_id_arg_schema(),
+                    "account": {
+                        "type": "string",
+                        "description": "The EMAIL of the Google account for which you are executing this action. Must be provided by user.",
+                    },
                     "email_ids": {
                         "type": "array",
                         "items": {
@@ -142,7 +143,7 @@ class BulkGetEmailsByIdsToolHandler(toolhandler.ToolHandler):
                         "description": "List of Gmail message IDs to retrieve"
                     }
                 },
-                "required": ["email_ids", toolhandler.USER_ID_ARG]
+                "required": ["account", "email_ids"]
             }
         )
 
@@ -150,10 +151,7 @@ class BulkGetEmailsByIdsToolHandler(toolhandler.ToolHandler):
         if "email_ids" not in args:
             raise RuntimeError("Missing required argument: email_ids")
 
-        user_id = args.get(toolhandler.USER_ID_ARG)
-        if not user_id:
-            raise RuntimeError(f"Missing required argument: {toolhandler.USER_ID_ARG}")
-        gmail_service = gmail.GmailService(user_id=user_id)
+        gmail_service = gmail.GmailService(credential=Credential(args))
         
         results = []
         for email_id in args["email_ids"]:
@@ -166,7 +164,7 @@ class BulkGetEmailsByIdsToolHandler(toolhandler.ToolHandler):
             return [
                 TextContent(
                     type="text",
-                    text=f"Failed to retrieve any emails from the provided IDs"
+                    text="Failed to retrieve any emails from the provided IDs"
                 )
             ]
 
@@ -192,7 +190,10 @@ class CreateDraftToolHandler(toolhandler.ToolHandler):
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "__user_id__": self.get_user_id_arg_schema(),
+                    "account": {
+                        "type": "string",
+                        "description": "The EMAIL of the Google account for which you are executing this action. Must be provided by user.",
+                    },
                     "to": {
                         "type": "string",
                         "description": "Email address of the recipient"
@@ -213,7 +214,7 @@ class CreateDraftToolHandler(toolhandler.ToolHandler):
                         "description": "Optional list of email addresses to CC"
                     }
                 },
-                "required": ["to", "subject", "body", toolhandler.USER_ID_ARG]
+                "required": ["account", "to", "subject", "body"]
             }
         )
 
@@ -222,10 +223,7 @@ class CreateDraftToolHandler(toolhandler.ToolHandler):
         if not all(key in args for key in required):
             raise RuntimeError(f"Missing required arguments: {', '.join(required)}")
 
-        user_id = args.get(toolhandler.USER_ID_ARG)
-        if not user_id:
-            raise RuntimeError(f"Missing required argument: {toolhandler.USER_ID_ARG}")
-        gmail_service = gmail.GmailService(user_id=user_id)
+        gmail_service = gmail.GmailService(credential=Credential(args))
         draft = gmail_service.create_draft(
             to=args["to"],
             subject=args["subject"],
@@ -259,13 +257,16 @@ class DeleteDraftToolHandler(toolhandler.ToolHandler):
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "__user_id__": self.get_user_id_arg_schema(),
+                    "account": {
+                        "type": "string",
+                        "description": "The EMAIL of the Google account for which you are executing this action. Must be provided by user.",
+                    },
                     "draft_id": {
                         "type": "string",
                         "description": "The ID of the draft to delete"
                     }
                 },
-                "required": ["draft_id", toolhandler.USER_ID_ARG]
+                "required": ["account", "draft_id"]
             }
         )
 
@@ -273,10 +274,7 @@ class DeleteDraftToolHandler(toolhandler.ToolHandler):
         if "draft_id" not in args:
             raise RuntimeError("Missing required argument: draft_id")
 
-        user_id = args.get(toolhandler.USER_ID_ARG)
-        if not user_id:
-            raise RuntimeError(f"Missing required argument: {toolhandler.USER_ID_ARG}")
-        gmail_service = gmail.GmailService(user_id=user_id)
+        gmail_service = gmail.GmailService(credential=Credential(args))
         success = gmail_service.delete_draft(args["draft_id"])
 
         return [
@@ -300,7 +298,10 @@ class ReplyEmailToolHandler(toolhandler.ToolHandler):
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "__user_id__": self.get_user_id_arg_schema(),
+                    "account": {
+                        "type": "string",
+                        "description": "The EMAIL of the Google account for which you are executing this action. Must be provided by user.",
+                    },
                     "original_message_id": {
                         "type": "string",
                         "description": "The ID of the Gmail message to reply to"
@@ -322,7 +323,7 @@ class ReplyEmailToolHandler(toolhandler.ToolHandler):
                         "description": "Optional list of email addresses to CC on the reply"
                     }
                 },
-                "required": ["original_message_id", "reply_body", toolhandler.USER_ID_ARG]
+                "required": ["account", "original_message_id", "reply_body"]
             }
         )
 
@@ -330,13 +331,10 @@ class ReplyEmailToolHandler(toolhandler.ToolHandler):
         if not all(key in args for key in ["original_message_id", "reply_body"]):
             raise RuntimeError("Missing required arguments: original_message_id and reply_body")
 
-        user_id = args.get(toolhandler.USER_ID_ARG)
-        if not user_id:
-            raise RuntimeError(f"Missing required argument: {toolhandler.USER_ID_ARG}")
-        gmail_service = gmail.GmailService(user_id=user_id)
+        gmail_service = gmail.GmailService(credential=Credential(args))
         
         # First get the original message to extract necessary information
-        original_message = gmail_service.get_email_by_id(args["original_message_id"])
+        original_message = gmail_service.get_email_by_id_with_attachments(args["original_message_id"])
         if original_message is None:
             return [
                 TextContent(
@@ -379,7 +377,10 @@ class GetAttachmentToolHandler(toolhandler.ToolHandler):
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "__user_id__": self.get_user_id_arg_schema(),
+                    "account": {
+                        "type": "string",
+                        "description": "The EMAIL of the Google account for which you are executing this action. Must be provided by user.",
+                    },
                     "message_id": {
                         "type": "string",
                         "description": "The ID of the Gmail message containing the attachment"
@@ -401,7 +402,7 @@ class GetAttachmentToolHandler(toolhandler.ToolHandler):
                         "description": "The fullpath to save the attachment to disk. If not provided, the attachment is returned as a resource."
                     }
                 },
-                "required": ["message_id", "attachment_id", "mime_type", "filename", toolhandler.USER_ID_ARG]
+                "required": ["account", "message_id", "attachment_id", "mime_type", "filename"]
             }
         )
 
@@ -416,10 +417,7 @@ class GetAttachmentToolHandler(toolhandler.ToolHandler):
             raise RuntimeError("Missing required argument: filename")
         filename = args["filename"]
         mime_type = args["mime_type"]
-        user_id = args.get(toolhandler.USER_ID_ARG)
-        if not user_id:
-            raise RuntimeError(f"Missing required argument: {toolhandler.USER_ID_ARG}")
-        gmail_service = gmail.GmailService(user_id=user_id)
+        gmail_service = gmail.GmailService(credential=Credential(args))
         attachment_data = gmail_service.get_attachment(args["message_id"], args["attachment_id"])
 
         if attachment_data is None:
@@ -464,7 +462,10 @@ class BulkSaveAttachmentsToolHandler(toolhandler.ToolHandler):
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "__user_id__": self.get_user_id_arg_schema(),
+                    "account": {
+                        "type": "string",
+                        "description": "The EMAIL of the Google account for which you are executing this action. Must be provided by user.",
+                    },
                     "attachments": {
                         "type": "array",
                         "items": {
@@ -487,7 +488,7 @@ class BulkSaveAttachmentsToolHandler(toolhandler.ToolHandler):
                         }
                     }
                 },
-                "required": ["attachments", toolhandler.USER_ID_ARG]
+                "required": ["account", "attachments"]
             }
         )
 
@@ -495,11 +496,7 @@ class BulkSaveAttachmentsToolHandler(toolhandler.ToolHandler):
         if "attachments" not in args:
             raise RuntimeError("Missing required argument: attachments")
 
-        user_id = args.get(toolhandler.USER_ID_ARG)
-        if not user_id:
-            raise RuntimeError(f"Missing required argument: {toolhandler.USER_ID_ARG}")
-
-        gmail_service = gmail.GmailService(user_id=user_id)
+        gmail_service = gmail.GmailService(credential=Credential(args))
         results = []
 
         for attachment_info in args["attachments"]:
