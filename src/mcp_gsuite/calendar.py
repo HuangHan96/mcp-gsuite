@@ -1,16 +1,18 @@
 from googleapiclient.discovery import build
-from . import gauth
+import httplib2
+from oauth2client.client import AccessTokenCredentials
+from mcp_gsuite.credential import Credential, MCP_AGENT
 import logging
 import traceback
 from datetime import datetime
 import pytz
 
 class CalendarService():
-    def __init__(self, user_id: str):
-        credentials = gauth.get_stored_credentials(user_id=user_id)
-        if not credentials:
-            raise RuntimeError("No Oauth2 credentials stored")
-        self.service = build('calendar', 'v3', credentials=credentials)  # Note: using v3 for Calendar API
+    def __init__(self, credential: Credential):
+        credentials = AccessTokenCredentials(credential.token, MCP_AGENT)
+        http = httplib2.Http()
+        http = credentials.authorize(http)
+        self.service = build('calendar', 'v3', http=http)
     
     def list_calendars(self) -> list:
         """
